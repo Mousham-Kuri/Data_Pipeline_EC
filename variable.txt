@@ -1,0 +1,7 @@
+{
+	"google_analytics_main_bigquery_table": {
+		"projectId": "eclub-data",
+		"datasetId": "dev",
+		"tableId": "main_google_analytics "
+	}
+}
