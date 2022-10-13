@@ -1,0 +1,6 @@
+{
+"postgres_tables":{
+        "table": ["view_users","view_users_stories","view_users_shares"],
+        "target_bucket": "arn:aws:s3:::evergreenclub-data-engineering-dev"
+    }
+}
