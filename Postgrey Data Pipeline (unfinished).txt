@@ -1,0 +1,103 @@
+from airflow.models import DAG
+from airflow.models import Variable
+from datetime import datetime, timedelta
+from airflow.providers.postgres.operators.postgres import PostgresOperator
+from airflow.hooks.base import BaseHook
+from airflow.providers.slack.operators.slack_webhook import SlackWebhookOperator
+from airflow.providers.google.cloud.transfers.s3_to_gcs import S3ToGCSOperator
+import os
+
+SLACK_CONN_ID = 'slack'
+postgres_tables = Variable.get("postgres_tables", deserialize_json=True)
+
+def task_fail_slack_alert(context):
+    slack_webhook_token = BaseHook.get_connection(SLACK_CONN_ID).password
+    slack_msg = """
+            :red_circle: Task Failed.
+            *Task*: {task}  
+            *Dag*: {dag} 
+            *Execution Time*: {exec_date}  
+            *Log Url*: {log_url} 
+            """.format(
+            task=context.get('task_instance').task_id,
+            dag=context.get('task_instance').dag_id,
+            ti=context.get('task_instance'),
+            exec_date=context.get('data_interval_start'),
+            log_url=context.get('task_instance').log_url,
+        )
+    failed_alert = SlackWebhookOperator(
+        task_id='slack_test',
+        http_conn_id=SLACK_CONN_ID,
+        webhook_token=slack_webhook_token,
+        message=slack_msg,
+        channel=Variable.get("slack_channel"),
+        username=Variable.get("slack_channel_username"),
+        dag=dag)
+    return failed_alert.execute(context=context)
+
+def task_success_slack_alert(context):
+    slack_webhook_token = BaseHook.get_connection(SLACK_CONN_ID).password
+    slack_msg = """
+            :large_green_circle: TASK SUCCESS!
+            *Task*: {task} 
+            *Dag*: {dag} 
+            *Execution Time*: {exec_date}  
+            *Log Url*: {log_url} 
+            """.format(
+            task=context.get('task_instance').task_id,
+            dag=context.get('task_instance').dag_id,
+            ti=context.get('task_instance'),
+            exec_date=context.get('logical_date'),
+            log_url=context.get('task_instance').log_url,
+        )
+    success_alert = SlackWebhookOperator(
+        task_id='slack_test',
+        http_conn_id='slack',
+        webhook_token=slack_webhook_token,
+        message=slack_msg,
+        channel="de_airflow_data_jobs_dev",
+        username='airflow',
+        dag=dag)
+    return success_alert.execute(context=context)
+
+args = {
+    'owner': 'airflow',
+    'start_date': datetime(2022, 7, 31),
+    'on_failure_callback': task_fail_slack_alert,
+    'on_success_callback': task_success_slack_alert,
+}
+
+dag = DAG(
+    dag_id='Postgres',
+    default_args=args,
+    schedule_interval='45 05 * * *',
+    catchup=False,
+    render_template_as_native_obj=True,
+)
+
+with dag:
+    for tables in postgres_tables['table']:
+        pg_to_s3_op=PostgresOperator(
+            task_id=tables,
+            postgres_conn_id="postgrey_conn",
+            sql="""
+                            COPY {{params.table}} TO DIRECTORY 's3://{{params.access}}:{{params.secret}}@{{params.target_bucket}}';
+                        """,
+            params={
+                "table": tables,
+                "target_bucket": postgres_tables['target_bucket'],
+                "access": os.environ.get(Variable.get("ACCESS_KEY_ID")),
+                "secret": os.environ.get(Variable.get("SECRET_ACCESS_KEY")),
+            }
+        )
+
+    s3_to_gcs_op = S3ToGCSOperator(
+        task_id="s3_to_gcs_example",
+        bucket=postgres_tables['target_bucket'],
+        prefix="test.csv",
+        aws_conn_id="conn_S3",
+        dest_gcs="gs://eclub_data_dev_product/",
+        replace=True,
+    )
+
+    pg_to_s3_op >> s3_to_gcs_op
