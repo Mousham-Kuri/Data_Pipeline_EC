@@ -1,0 +1,1088 @@
+if __name__ == '__main__':
+    import requests
+    import csv
+    import os
+    from google.cloud import storage
+    from google.cloud import bigquery
+    import sys
+    import pandas as pd
+    import io
+    import datetime
+
+    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = r'C:\Users\Administrator\PycharmProjects\Adjust\eclub-data-d18845fd301c.json'
+    storage_client = storage.Client()
+    bucket = storage_client.bucket('eclub_data_prod_adjust')
+
+    today = datetime.datetime.today().date()
+    yesterday = today - datetime.timedelta(days=1)
+    day_before_yesterday = today - datetime.timedelta(days=2)
+
+    # yesterday = '2022-08-03'
+    # day_before_yesterday = '2022-08-02'
+
+
+    yesterday = str(yesterday)
+    c = yesterday[:4] + yesterday[5:7] + yesterday[8:]
+
+
+## executing adjust tracker data
+
+    def run_adjust_tracker(token):
+        url = "http://api.adjust.com/kpis/v1/qtz94xw6a29s?start_date="+str(yesterday)+"&end_date="+str(yesterday)+"&utc_offset=+05:30&kpis=clicks,rejected_installs,rejected_installs_anon_ip,rejected_installs_too_many_engagements,rejected_installs_distribution_outlier,rejected_installs_click_injection,rejected_installs_invalid_signature,rejected_reattributions,rejected_reattributions_anon_ip,rejected_reattributions_too_many_engagements,rejected_reattributions_distribution_outlier,rejected_reattributions_click_injection,rejected_install_rate,rejected_install_anon_ip_rate,rejected_install_too_many_engagements_rate,rejected_install_distribution_outlier_rate,rejected_install_click_injection_rate,rejected_reattribution_rate,rejected_reattribution_anon_ip_rate,rejected_reattribution_too_many_engagements_rate,rejected_reattribution_distribution_outlier_rate,rejected_reattribution_click_injection_rate,install_cost,click_cost,impression_cost,event_cost,cost,ecost,paid_installs,paid_clicks,paid_impressions,cpe,ecpc,ecpi,ecpm,cohort_gross_profit,return_on_investment,rcr,roas,ad_revenue,ad_impressions,ad_rpm,impressions,installs,uninstalls,uninstall_cohort,reinstalls,click_conversion_rate,ctr,impression_conversion_rate,reattributions,reattribution_reinstalls,deattributions,sessions,revenue_events,revenue,all_revenue,cohort_revenue,daus,waus,maus,limit_ad_tracking_installs,limit_ad_tracking_install_rate,limit_ad_tracking_reattributions,limit_ad_tracking_reattribution_rate,gdpr_forgets,cohort_ad_revenue,cohort_all_revenue&event_kpis=all_revenue,all_events,all_revenue_per_event,all_revenue_events,all_first_events,all_revenue_per_revenue_event&grouping=tracker,days"
+        payload = {}
+        headers = {
+            'Authorization': token
+        }
+        response = requests.request("GET", url, headers=headers, data=payload)
+        content = response.json()
+
+
+        file_name='adjust_tracker_days_'+str(c)+'.csv'
+
+        rows = []
+        kpis_headers=['Date','Tracker']
+        kpis_headers.extend(content['result_parameters']['kpis'])
+
+        dict1 = {}
+        for i in range(len(content['result_parameters']['events'])):
+            dict1[content['result_parameters']['events'][i]['token']] = content['result_parameters']['events'][i]['name']
+
+        for i in range(len(kpis_headers)):
+            head = kpis_headers[i].split("_")[0]
+            if head in dict1.keys():
+                a=head.replace(head,dict1[head])
+                a=a.replace(" ","_")
+                b= a + "_" + kpis_headers[i].split("_")[1]
+                kpis_headers[i]=b
+
+        dict = {}
+        for i in range(len(content['result_parameters']['trackers'])):
+            dict[content['result_parameters']['trackers'][i]['token']] = content['result_parameters']['trackers'][i]['name']
+
+
+
+        rows.append(kpis_headers)
+        trackers=content['result_set']['trackers']
+        for tracker in trackers:
+            dates=tracker['dates']
+            tokens=tracker['token']
+            for date in dates:
+                rows1=[]
+                rows1.append(date['date'])
+                rows1.append(dict[tokens])
+                rows1.extend(date['kpi_values'])
+                rows.append(rows1)
+
+
+        df = pd.DataFrame(rows)
+        csv_data = df.to_csv(header=False,index=False)
+
+        blob = bucket.blob(file_name)
+        with io.StringIO() as f:
+            f.write(csv_data)
+            f.seek(0)
+            blob.upload_from_file(f)
+            print('executing adjust tracker data completed')
+
+
+## executing adjust campaing adgroup and creative data
+
+    def run_adjust_campaign_adgroup_creative(token):
+        url2 = "http://api.adjust.com/kpis/v1/qtz94xw6a29s?start_date="+str(yesterday)+"&end_date="+str(yesterday)+"&utc_offset=+05:30&kpis=clicks,rejected_installs,rejected_installs_anon_ip,rejected_installs_too_many_engagements,rejected_installs_distribution_outlier,rejected_installs_click_injection,rejected_installs_invalid_signature,rejected_reattributions,rejected_reattributions_anon_ip,rejected_reattributions_too_many_engagements,rejected_reattributions_distribution_outlier,rejected_reattributions_click_injection,rejected_install_rate,rejected_install_anon_ip_rate,rejected_install_too_many_engagements_rate,rejected_install_distribution_outlier_rate,rejected_install_click_injection_rate,rejected_reattribution_rate,rejected_reattribution_anon_ip_rate,rejected_reattribution_too_many_engagements_rate,rejected_reattribution_distribution_outlier_rate,rejected_reattribution_click_injection_rate,install_cost,click_cost,impression_cost,event_cost,cost,ecost,paid_installs,paid_clicks,paid_impressions,cpe,ecpc,ecpi,ecpm,cohort_gross_profit,return_on_investment,rcr,roas,ad_revenue,ad_impressions,ad_rpm,impressions,installs,uninstalls,uninstall_cohort,reinstalls,click_conversion_rate,ctr,impression_conversion_rate,reattributions,reattribution_reinstalls,deattributions,sessions,revenue_events,revenue,all_revenue,cohort_revenue,daus,waus,maus,limit_ad_tracking_installs,limit_ad_tracking_install_rate,limit_ad_tracking_reattributions,limit_ad_tracking_reattribution_rate,gdpr_forgets,cohort_ad_revenue,cohort_all_revenue&event_kpis=all_revenue,all_events,all_revenue_per_event,all_revenue_events,all_first_events,all_revenue_per_revenue_event&grouping=campaign,adgroups,creative,days"
+
+        payload2 = {}
+        headers2 = {
+            'Authorization': token
+        }
+
+        response2 = requests.request("GET", url2, headers=headers2, data=payload2)
+        content2 = response2.json()
+
+
+        file_name1 = 'adjust_campaign_adgroup_creative_days_'+str(c)+'.csv'
+
+        rows3 = []
+        kpis_headers2 = ['Date','campaigns','adgroup','creatives']
+        kpis_headers2.extend(content2['result_parameters']['kpis'])
+
+        dict2 = {}
+        for i in range(len(content2['result_parameters']['events'])):
+            dict2[content2['result_parameters']['events'][i]['token']] = content2['result_parameters']['events'][i]['name']
+
+        for i in range(len(kpis_headers2)):
+            head = kpis_headers2[i].split("_")[0]
+            if head in dict2.keys():
+                a = head.replace(head, dict2[head])
+                a = a.replace(" ", "_")
+                b = a + "_" + kpis_headers2[i].split("_")[1]
+                kpis_headers2[i] = b
+
+        rows3.append(kpis_headers2)
+        campaigns = content2['result_set']['campaigns']
+        for campaigns in campaigns:
+            adgroup = campaigns['adgroups']
+            for adgroup in adgroup:
+                creatives=adgroup['creatives']
+                for creatives in creatives:
+                    dates2=creatives['dates']
+                    for dates2 in dates2:
+                        current_row=[]
+                        current_row.append(dates2['date'])
+                        current_row.append(campaigns['name'])
+                        current_row.append(adgroup['name'])
+                        current_row.append(creatives['name'])
+                        current_row.extend(dates2['kpi_values'])
+                        rows3.append(current_row)
+
+        df1 = pd.DataFrame(rows3)
+        csv_data1 = df1.to_csv(header=False, index=False)
+
+
+        blob = bucket.blob(file_name1)
+        blob.upload_from_string(csv_data1, 'text/csv')
+        print('executing adjust campaing adgroup and creative data completed')
+
+
+
+## executing adjust user event
+
+    app_token = 'qtz94xw6a29s'
+    bloblist = []
+    file_outofbound = []
+    
+
+    def user_event(bucket):
+        bucket = storage_client.bucket(bucket)
+        all_blobs = list(storage_client.list_blobs(bucket))
+    
+        fileList = [file.name for file in all_blobs if
+                    app_token in file.name and (str(yesterday) in file.name or str(day_before_yesterday) in file.name)]
+        for file in fileList:
+            timezone = int(file.split("T")[1].split("_")[0])
+            if str(day_before_yesterday) in file and timezone >= 190000:
+                bloblist.append(file)
+            elif str(yesterday) in file and timezone <= 180000:
+                bloblist.append(file)
+            else:
+                file_outofbound.append(file)
+    
+        blob = bucket.blob(bloblist[0])
+        blob = blob.download_as_string()
+        blob = blob.decode('utf-8')
+    
+        blob = io.StringIO(blob)
+        df = pd.read_csv(blob, index_col=0)
+    
+        for i in range(1, len(bloblist)):
+            blob = bucket.blob(bloblist[i])
+            blob = blob.download_as_string()
+            blob = blob.decode('utf-8')
+    
+            blob = io.StringIO(blob)
+            df1 = pd.read_csv(blob, index_col=0, header=0)
+            df = pd.concat([df, df1], axis=0)
+
+        df.insert(loc=0, column='Reference_Date', value=yesterday)
+        df['Reference_Date'] = pd.to_datetime(df.Reference_Date)
+        df.columns = df.columns.str.replace('{', '')
+        df.columns = df.columns.str.replace('}', '')
+        df.columns = df.columns.str.replace('[', '')
+        df.columns = df.columns.str.replace(']', '')
+
+        df['click_time'] = df['click_time'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime("%Y-%m-%d %H:%M:%S") if not pd.isna(x) else '')
+        df['click_time_hour'] = df['click_time_hour'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['impression_time'] = df['impression_time'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['impression_time_hour'] = df['impression_time_hour'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['engagement_time'] = df['engagement_time'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['engagement_time_hour'] = df['engagement_time_hour'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['installed_at'] = df['installed_at'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['installed_at_hour'] = df['installed_at_hour'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['install_finish_time'] = df['install_finish_time'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['install_begin_time'] = df['install_begin_time'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['referral_time'] = df['referral_time'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['created_at'] = df['created_at'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['created_at_milli'] = pd.to_datetime(df['created_at_milli'], unit='ms')
+        df['created_at_milli'] = df['created_at_milli'].apply(
+            lambda x: x.tz_localize('UTC').tz_convert('Asia/Kolkata').strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(
+                x) else '')
+        df['created_at_hour'] = df['created_at_hour'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['received_at'] = df['received_at'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['reattributed_at'] = df['reattributed_at'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['reattributed_at_hour'] = df['reattributed_at_hour'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['attribution_updated_at'] = df['attribution_updated_at'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['uninstalled_at'] = df['uninstalled_at'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['reinstalled_at'] = df['reinstalled_at'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['last_session_time'] = df['last_session_time'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['last_fallback_time'] = df['last_fallback_time'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['attribution_expires_at'] = df['attribution_expires_at'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['subscription_purchased_at'] = df['subscription_purchased_at'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['subscription_expiration_time'] = df['subscription_expiration_time'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['subscription_cancelled_at'] = df['subscription_cancelled_at'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['sk_ts'] = df['sk_ts'].apply(
+            lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if not pd.isna(x) else '')
+        df['request_sent_date'] = df['request_sent_date'].apply(
+            lambda x: datetime.strptime(x, '%d/%m/%Y').strftime('%Y-%m-%d') if not pd.isna(x) else '')
+
+        df["callback_ttl"] = df["callback_ttl"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["within_callback_ttl"] = df["within_callback_ttl"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["conversion_duration"] = df["conversion_duration"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["subscription_expired_transaction_id"] = df["subscription_expired_transaction_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["impression_based"] = df["impression_based"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["is_organic"] = df["is_organic"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["is_s2s"] = df["is_s2s"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["is_s2s_engagement_based"] = df["is_s2s_engagement_based"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["time_to_reinstall"] = df["time_to_reinstall"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["time_to_uninstall"] = df["time_to_uninstall"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["is_deeplink_click"] = df["is_deeplink_click"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["device_atlas_id"] = df["device_atlas_id"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["click_attribution_window"] = df["click_attribution_window"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["impression_attribution_window"] = df["impression_attribution_window"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["probmatching_attribution_window"] = df["probmatching_attribution_window"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["reattribution_attribution_window"] = df["reattribution_attribution_window"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["inactive_user_definition"] = df["inactive_user_definition"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["attribution_ttl"] = df["attribution_ttl"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["reattribution_attribution_ttl"] = df["reattribution_attribution_ttl"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["mcc"] = df["mcc"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["mnc"] = df["mnc"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["api_level"] = df["api_level"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["random"] = df["random"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["tracking_enabled"] = df["tracking_enabled"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["tracking_limited"] = df["tracking_limited"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["att_status"] = df["att_status"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["third_party_sharing_disabled"] = df["third_party_sharing_disabled"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["last_time_spent"] = df["last_time_spent"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["session_count"] = df["session_count"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["lifetime_session_count"] = df["lifetime_session_count"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["is_reattributed"] = df["is_reattributed"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["is_imported"] = df["is_imported"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["subscription_transaction_id"] = df["subscription_transaction_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["sk_campaign_id"] = df["sk_campaign_id"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["sk_app_id"] = df["sk_app_id"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["sk_invalid_signature"] = df["sk_invalid_signature"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["sk_redownload"] = df["sk_redownload"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["sk_fidelity_type"] = df["sk_fidelity_type"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["sk_source_app_id"] = df["sk_source_app_id"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["sk_conversion_value"] = df["sk_conversion_value"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["google_ads_campaign_id"] = df["google_ads_campaign_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["google_ads_adgroup_id"] = df["google_ads_adgroup_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["google_ads_creative_id"] = df["google_ads_creative_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["google_ads_video_id"] = df["google_ads_video_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["google_ads_external_customer_id"] = df["google_ads_external_customer_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["dcm_external_customer_id"] = df["dcm_external_customer_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["dcm_placement_id"] = df["dcm_placement_id"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["dcm_site_id"] = df["dcm_site_id"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["dcm_creative_id"] = df["dcm_creative_id"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["dbm_external_customer_id"] = df["dbm_external_customer_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["dbm_line_item_id"] = df["dbm_line_item_id"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["dbm_insertion_order_id"] = df["dbm_insertion_order_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["dbm_creative_id"] = df["dbm_creative_id"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["dbm_exchange_id"] = df["dbm_exchange_id"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["fb_install_referrer_ad_id"] = df["fb_install_referrer_ad_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["fb_install_referrer_adgroup_id"] = df["fb_install_referrer_adgroup_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["fb_install_referrer_campaign_id"] = df["fb_install_referrer_campaign_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["fb_install_referrer_campaign_group_id"] = df["fb_install_referrer_campaign_group_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["fb_install_referrer_account_id"] = df["fb_install_referrer_account_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["tweet_id"] = df["tweet_id"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["iad_creative_set_id"] = df["iad_creative_set_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        # df["iad_ad_id"]=df["iad_ad_id"].apply(lambda x: x.astype(int) if not pd.isna(x) else '')
+        df["userid"] = df["userid"].apply(lambda x: x.replace('undefined','') if x=='undefined' else '')
+        # df["userid"] = df["userid"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["phone"] = df["phone"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["id"] = df["id"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["duration"] = df["duration"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["post_id"] = df["post_id"].apply(lambda x: x.replace('undefined', '') if x == 'undefined' else '')
+        # df["post_id"] = df["post_id"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["story_id"] = df["story_id"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["clicks"] = df["clicks"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["impressions"] = df["impressions"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["installs"] = df["installs"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["uninstalls"] = df["uninstalls"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["uninstall_cohort"] = df["uninstall_cohort"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["reinstalls"] = df["reinstalls"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["reattributions"] = df["reattributions"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["reattribution_reinstalls"] = df["reattribution_reinstalls"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["deattributions"] = df["deattributions"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["sessions"] = df["sessions"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["revenue_events"] = df["revenue_events"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["all_revenue"] = df["all_revenue"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["cohort_revenue"] = df["cohort_revenue"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["daus"] = df["daus"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["waus"] = df["waus"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["maus"] = df["maus"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["limit_ad_tracking_installs"] = df["limit_ad_tracking_installs"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["limit_ad_tracking_reattributions"] = df["limit_ad_tracking_reattributions"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["gdpr_forgets"] = df["gdpr_forgets"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["cohort_ad_revenue"] = df["cohort_ad_revenue"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["cohort_all_revenue"] = df["cohort_all_revenue"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_installs"] = df["rejected_installs"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_installs_anon_ip"] = df["rejected_installs_anon_ip"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_installs_too_many_engagements"] = df["rejected_installs_too_many_engagements"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_installs_distribution_outlier"] = df["rejected_installs_distribution_outlier"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_installs_click_injection"] = df["rejected_installs_click_injection"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_installs_invalid_signature"] = df["rejected_installs_invalid_signature"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_reattributions"] = df["rejected_reattributions"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_reattributions_anon_ip"] = df["rejected_reattributions_anon_ip"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_reattributions_too_many_engagements"] = df["rejected_reattributions_too_many_engagements"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_reattributions_distribution_outlier"] = df["rejected_reattributions_distribution_outlier"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_reattributions_click_injection"] = df["rejected_reattributions_click_injection"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_install_rate"] = df["rejected_install_rate"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_install_anon_ip_rate"] = df["rejected_install_anon_ip_rate"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_install_too_many_engagements_rate"] = df["rejected_install_too_many_engagements_rate"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_install_distribution_outlier_rate"] = df["rejected_install_distribution_outlier_rate"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_install_click_injection_rate"] = df["rejected_install_click_injection_rate"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_reattribution_rate"] = df["rejected_reattribution_rate"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_reattribution_anon_ip_rate"] = df["rejected_reattribution_anon_ip_rate"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_reattribution_too_many_engagements_rate"] = df["rejected_reattribution_too_many_engagements_rate"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_reattribution_distribution_outlier_rate"] = df["rejected_reattribution_distribution_outlier_rate"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rejected_reattribution_click_injection_rate"] = df["rejected_reattribution_click_injection_rate"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["install_cost"] = df["install_cost"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["click_cost"] = df["click_cost"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["event_cost"] = df["event_cost"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["paid_installs"] = df["paid_installs"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["paid_clicks"] = df["paid_clicks"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["paid_impressions"] = df["paid_impressions"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["cpe"] = df["cpe"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["rcr"] = df["rcr"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["roas"] = df["roas"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["ad_revenue"] = df["ad_revenue"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["ad_impressions"] = df["ad_impressions"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["ad_rpm"] = df["ad_rpm"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["events"] = df["events"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["first_events"] = df["first_events"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["revenue_per_event"] = df["revenue_per_event"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["revenue_per_revenue_event"] = df["revenue_per_revenue_event"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["retained_users"] = df["retained_users"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["cohort_size"] = df["cohort_size"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["revenue_total"] = df["revenue_total"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["revenue_events_total"] = df["revenue_events_total"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["revenue_total_in_cohort"] = df["revenue_total_in_cohort"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["revenue_events_total_in_cohort"] = df["revenue_events_total_in_cohort"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["paying_users"] = df["paying_users"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["paying_user_size"] = df["paying_user_size"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["converted_users"] = df["converted_users"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["converted_user_size"] = df["converted_user_size"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["uninstalls.1"] = df["uninstalls.1"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["uninstalls_total"] = df["uninstalls_total"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["reinstalls_total"] = df["reinstalls_total"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["first_uninstalls_total"] = df["first_uninstalls_total"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["gdpr_forgets_total"] = df["gdpr_forgets_total"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["ad_revenue_total"] = df["ad_revenue_total"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["ad_revenue_total_in_cohort"] = df["ad_revenue_total_in_cohort"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["ad_impressions_total"] = df["ad_impressions_total"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["ad_impressions_total_in_cohort"] = df["ad_impressions_total_in_cohort"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["all_revenue_total"] = df["all_revenue_total"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["all_revenue_total_in_cohort"] = df["all_revenue_total_in_cohort"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["uninstalls.2"] = df["uninstalls.2"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["ad_impressions_count"] = df["ad_impressions_count"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["time_spent"] = df["time_spent"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["revenue"] = df["revenue"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["revenue_usd_cents"] = df["revenue_usd_cents"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["revenue_cny_cents"] = df["revenue_cny_cents"].apply(lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+        df["request_receiver_id"] = df["request_receiver_id"].apply(
+            lambda x: int(round(x, 0)) if not pd.isna(x) else '')
+    
+        file_name = 'adjust_user_event_' + str(c) + '.csv'
+        csv_data = df.to_csv(index=False, header=True)
+        blob = bucket.blob(file_name)
+        blob.upload_from_string(csv_data, 'text/csv')
+        print('executing adjust user event completed')
+
+    
+## Transfer of adjust tracker data from GCS to big query
+
+    # Construct a BigQuery client object.
+    client = bigquery.Client()
+    storage_client = storage.Client()
+    bucket = storage.Bucket(storage_client, "eclub_data_prod_adjust")
+
+    query_string = """
+        truncate table prod.stg_adjust_campaign_adgroup_creative;
+        truncate table prod.stg_adjust_tracker;
+        truncate table prod.stg_adjust_user_event;
+        """
+    client.query(query_string).result()
+
+    def big_query_run_adjust_tracker(table_ID):
+        blob = bucket.blob('adjust_tracker_days_'+str(c)+'.csv')
+        blob = blob.download_as_string()
+        blob = blob.decode('utf-8')
+        blob = io.StringIO(blob)
+        df = pd.read_csv(blob, index_col=0)
+        a = list(df.columns.values.tolist())
+
+        schema = [
+            bigquery.SchemaField("date", "DATE"),
+            bigquery.SchemaField("tracker", "STRING"),
+            bigquery.SchemaField("clicks", "INTEGER"),
+            bigquery.SchemaField("rejected_installs", "INTEGER"),
+            bigquery.SchemaField("rejected_installs_anon_ip", "INTEGER"),
+            bigquery.SchemaField("rejected_installs_too_many_engagements", "INTEGER"),
+            bigquery.SchemaField("rejected_installs_distribution_outlier", "INTEGER"),
+            bigquery.SchemaField("rejected_installs_click_injection", "INTEGER"),
+            bigquery.SchemaField("rejected_installs_invalid_signature", "INTEGER"),
+            bigquery.SchemaField("rejected_reattributions", "INTEGER"),
+            bigquery.SchemaField("rejected_reattributions_anon_ip", "INTEGER"),
+            bigquery.SchemaField("rejected_reattributions_too_many_engagements", "INTEGER"),
+            bigquery.SchemaField("rejected_reattributions_distribution_outlier", "INTEGER"),
+            bigquery.SchemaField("rejected_reattributions_click_injection", "INTEGER"),
+            bigquery.SchemaField("rejected_install_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_install_anon_ip_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_install_too_many_engagements_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_install_distribution_outlier_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_install_click_injection_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_reattribution_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_reattribution_anon_ip_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_reattribution_too_many_engagements_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_reattribution_distribution_outlier_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_reattribution_click_injection_rate", "INTEGER"),
+            bigquery.SchemaField("install_cost", "INTEGER"),
+            bigquery.SchemaField("click_cost", "INTEGER"),
+            bigquery.SchemaField("impression_cost", "FLOAT"),
+            bigquery.SchemaField("event_cost", "INTEGER"),
+            bigquery.SchemaField("cost", "FLOAT"),
+            bigquery.SchemaField("ecost", "FLOAT"),
+            bigquery.SchemaField("paid_installs", "INTEGER"),
+            bigquery.SchemaField("paid_clicks", "INTEGER"),
+            bigquery.SchemaField("paid_impressions", "INTEGER"),
+            bigquery.SchemaField("cpe", "INTEGER"),
+            bigquery.SchemaField("ecpc", "FLOAT"),
+            bigquery.SchemaField("ecpi", "FLOAT"),
+            bigquery.SchemaField("ecpm", "FLOAT"),
+            bigquery.SchemaField("cohort_gross_profit", "FLOAT"),
+            bigquery.SchemaField("return_on_investment", "INTEGER"),
+            bigquery.SchemaField("rcr", "INTEGER"),
+            bigquery.SchemaField("roas", "INTEGER"),
+            bigquery.SchemaField("ad_revenue", "INTEGER"),
+            bigquery.SchemaField("ad_impressions", "INTEGER"),
+            bigquery.SchemaField("ad_rpm", "INTEGER"),
+            bigquery.SchemaField("impressions", "INTEGER"),
+            bigquery.SchemaField("installs", "INTEGER"),
+            bigquery.SchemaField("uninstalls", "INTEGER"),
+            bigquery.SchemaField("uninstall_cohort", "INTEGER"),
+            bigquery.SchemaField("reinstalls", "INTEGER"),
+            bigquery.SchemaField("click_conversion_rate", "FLOAT"),
+            bigquery.SchemaField("ctr", "FLOAT"),
+            bigquery.SchemaField("impression_conversion_rate", "FLOAT"),
+            bigquery.SchemaField("reattributions", "INTEGER"),
+            bigquery.SchemaField("reattribution_reinstalls", "INTEGER"),
+            bigquery.SchemaField("deattributions", "INTEGER"),
+            bigquery.SchemaField("sessions", "INTEGER"),
+            bigquery.SchemaField("revenue_events", "INTEGER"),
+            bigquery.SchemaField("revenue", "INTEGER"),
+            bigquery.SchemaField("all_revenue", "INTEGER"),
+            bigquery.SchemaField("cohort_revenue", "INTEGER"),
+            bigquery.SchemaField("daus", "INTEGER"),
+            bigquery.SchemaField("waus", "INTEGER"),
+            bigquery.SchemaField("maus", "INTEGER"),
+            bigquery.SchemaField("limit_ad_tracking_installs", "INTEGER"),
+            bigquery.SchemaField("limit_ad_tracking_install_rate", "FLOAT"),
+            bigquery.SchemaField("limit_ad_tracking_reattributions", "INTEGER"),
+            bigquery.SchemaField("limit_ad_tracking_reattribution_rate", "FLOAT"),
+            bigquery.SchemaField("gdpr_forgets", "INTEGER"),
+            bigquery.SchemaField("cohort_ad_revenue", "INTEGER"),
+            bigquery.SchemaField("cohort_all_revenue", "INTEGER"),
+        ]
+
+        for i in a[69:]:
+            schema.append(bigquery.SchemaField(i.lower(), "INTEGER"),)
+
+        # Set table_id to the ID of the table to create.
+        table_id = table_ID
+        job_config = bigquery.LoadJobConfig(
+            schema=schema,
+            allow_quoted_newlines=True,
+            skip_leading_rows=1,
+            # The source format defaults to CSV, so the line below is optional.
+            source_format=bigquery.SourceFormat.CSV,
+            # If table is already loaded, following command will ensure its over-written
+            # write_disposition = 'WRITE_TRUNCATE'
+        )
+        uri = "gs://eclub_data_prod_adjust/adjust_tracker_days_"+str(c)+".csv"
+        load_job = client.load_table_from_uri(
+            uri, table_id, job_config=job_config)  # Make an API request.
+        load_job.result()  # Waits for the job to complete.
+        destination_table = client.get_table(table_id)  # Make an API request.
+        print("Loaded {} rows.".format(destination_table.num_rows))
+
+
+## Transfer of adjust campaign adgroup and creative  data from GCS to big query
+
+    def big_query_run_adjust_campaign_adgroup_creative(table_ID):
+        blob = bucket.blob('adjust_campaign_adgroup_creative_days_'+str(c)+'.csv')
+        blob = blob.download_as_string()
+        blob = blob.decode('utf-8')
+        blob = io.StringIO(blob)
+        df = pd.read_csv(blob, index_col=0)
+        b = list(df.columns.values.tolist())
+
+        schema = [
+            bigquery.SchemaField("date", "DATE"),
+            bigquery.SchemaField("campaigns", "STRING"),
+            bigquery.SchemaField("adgroup", "STRING"),
+            bigquery.SchemaField("creatives", "STRING"),
+            bigquery.SchemaField("clicks", "INTEGER"),
+            bigquery.SchemaField("rejected_installs", "INTEGER"),
+            bigquery.SchemaField("rejected_installs_anon_ip", "INTEGER"),
+            bigquery.SchemaField("rejected_installs_too_many_engagements", "INTEGER"),
+            bigquery.SchemaField("rejected_installs_distribution_outlier", "INTEGER"),
+            bigquery.SchemaField("rejected_installs_click_injection", "INTEGER"),
+            bigquery.SchemaField("rejected_installs_invalid_signature", "INTEGER"),
+            bigquery.SchemaField("rejected_reattributions", "INTEGER"),
+            bigquery.SchemaField("rejected_reattributions_anon_ip", "INTEGER"),
+            bigquery.SchemaField("rejected_reattributions_too_many_engagements", "INTEGER"),
+            bigquery.SchemaField("rejected_reattributions_distribution_outlier", "INTEGER"),
+            bigquery.SchemaField("rejected_reattributions_click_injection", "INTEGER"),
+            bigquery.SchemaField("rejected_install_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_install_anon_ip_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_install_too_many_engagements_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_install_distribution_outlier_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_install_click_injection_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_reattribution_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_reattribution_anon_ip_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_reattribution_too_many_engagements_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_reattribution_distribution_outlier_rate", "INTEGER"),
+            bigquery.SchemaField("rejected_reattribution_click_injection_rate", "INTEGER"),
+            bigquery.SchemaField("install_cost", "INTEGER"),
+            bigquery.SchemaField("click_cost", "INTEGER"),
+            bigquery.SchemaField("impression_cost", "FLOAT"),
+            bigquery.SchemaField("event_cost", "INTEGER"),
+            bigquery.SchemaField("cost", "FLOAT"),
+            bigquery.SchemaField("ecost", "FLOAT"),
+            bigquery.SchemaField("paid_installs", "INTEGER"),
+            bigquery.SchemaField("paid_clicks", "INTEGER"),
+            bigquery.SchemaField("paid_impressions", "INTEGER"),
+            bigquery.SchemaField("cpe", "INTEGER"),
+            bigquery.SchemaField("ecpc", "FLOAT"),
+            bigquery.SchemaField("ecpi", "FLOAT"),
+            bigquery.SchemaField("ecpm", "FLOAT"),
+            bigquery.SchemaField("cohort_gross_profit", "FLOAT"),
+            bigquery.SchemaField("return_on_investment", "FLOAT"),
+            bigquery.SchemaField("rcr", "INTEGER"),
+            bigquery.SchemaField("roas", "INTEGER"),
+            bigquery.SchemaField("ad_revenue", "INTEGER"),
+            bigquery.SchemaField("ad_impressions", "INTEGER"),
+            bigquery.SchemaField("ad_rpm", "INTEGER"),
+            bigquery.SchemaField("impressions", "INTEGER"),
+            bigquery.SchemaField("installs", "INTEGER"),
+            bigquery.SchemaField("uninstalls", "INTEGER"),
+            bigquery.SchemaField("uninstall_cohort", "INTEGER"),
+            bigquery.SchemaField("reinstalls", "INTEGER"),
+            bigquery.SchemaField("click_conversion_rate", "FLOAT"),
+            bigquery.SchemaField("ctr", "FLOAT"),
+            bigquery.SchemaField("impression_conversion_rate", "FLOAT"),
+            bigquery.SchemaField("reattributions", "INTEGER"),
+            bigquery.SchemaField("reattribution_reinstalls", "INTEGER"),
+            bigquery.SchemaField("deattributions", "INTEGER"),
+            bigquery.SchemaField("sessions", "INTEGER"),
+            bigquery.SchemaField("revenue_events", "INTEGER"),
+            bigquery.SchemaField("revenue", "INTEGER"),
+            bigquery.SchemaField("all_revenue", "INTEGER"),
+            bigquery.SchemaField("cohort_revenue", "INTEGER"),
+            bigquery.SchemaField("daus", "INTEGER"),
+            bigquery.SchemaField("waus", "INTEGER"),
+            bigquery.SchemaField("maus", "INTEGER"),
+            bigquery.SchemaField("limit_ad_tracking_installs", "INTEGER"),
+            bigquery.SchemaField("limit_ad_tracking_install_rate", "FLOAT"),
+            bigquery.SchemaField("limit_ad_tracking_reattributions", "INTEGER"),
+            bigquery.SchemaField("limit_ad_tracking_reattribution_rate", "FLOAT"),
+            bigquery.SchemaField("gdpr_forgets", "INTEGER"),
+            bigquery.SchemaField("cohort_ad_revenue", "INTEGER"),
+            bigquery.SchemaField("cohort_all_revenue", "INTEGER"),
+        ]
+
+        for i in b[71:]:
+            schema.append(bigquery.SchemaField(i.lower(), "INTEGER"),)
+
+        table_id = table_ID
+        job_config = bigquery.LoadJobConfig(
+            schema=schema,
+            allow_quoted_newlines=True,
+            skip_leading_rows=1,
+            # The source format defaults to CSV, so the line below is optional.
+            source_format=bigquery.SourceFormat.CSV,
+            # If table is already loaded, following command will ensure its over-written
+            # write_disposition = 'WRITE_TRUNCATE'
+        )
+        uri = "gs://eclub_data_prod_adjust/adjust_campaign_adgroup_creative_days_"+str(c)+".csv"
+        load_job = client.load_table_from_uri(
+            uri, table_id, job_config=job_config)  # Make an API request.
+        load_job.result()  # Waits for the job to complete.
+        destination_table = client.get_table(table_id)  # Make an API request.
+        print("Loaded {} rows.".format(destination_table.num_rows))
+
+
+## Transfer of adjust user event data from GCS to big query
+
+    def big_query_user_event(table_ID):
+        table_id = table_ID
+        job_config = bigquery.LoadJobConfig(
+            schema=[
+                bigquery.SchemaField("reference_date", "DATE"),
+                bigquery.SchemaField("app_id", "STRING"),
+                bigquery.SchemaField("app_name", "STRING"),
+                bigquery.SchemaField("app_name_dashboard", "STRING"),
+                bigquery.SchemaField("app_version", "FLOAT"),
+                bigquery.SchemaField("app_version_raw", "FLOAT"),
+                bigquery.SchemaField("app_version_short", "FLOAT"),
+                bigquery.SchemaField("store", "STRING"),
+                bigquery.SchemaField("tracker", "STRING"),
+                bigquery.SchemaField("tracker_name", "STRING"),
+                bigquery.SchemaField("first_tracker", "STRING"),
+                bigquery.SchemaField("first_tracker_name", "STRING"),
+                bigquery.SchemaField("last_tracker", "STRING"),
+                bigquery.SchemaField("last_tracker_name", "STRING"),
+                bigquery.SchemaField("outdated_tracker", "STRING"),
+                bigquery.SchemaField("network_name", "STRING"),
+                bigquery.SchemaField("campaign_name", "STRING"),
+                bigquery.SchemaField("adgroup_name", "STRING"),
+                bigquery.SchemaField("creative_name", "STRING"),
+                bigquery.SchemaField("impression_based", "INTEGER"),
+                bigquery.SchemaField("is_organic", "INTEGER"),
+                bigquery.SchemaField("is_s2s", "INTEGER"),
+                bigquery.SchemaField("is_s2s_engagement_based", "INTEGER"),
+                bigquery.SchemaField("rejection_reason", "STRING"),
+                bigquery.SchemaField("click_referer", "STRING"),
+                bigquery.SchemaField("activity_kind", "STRING"),
+                bigquery.SchemaField("click_time", "DATETIME"),
+                bigquery.SchemaField("click_time_hour", "DATETIME"),
+                bigquery.SchemaField("impression_time", "DATETIME"),
+                bigquery.SchemaField("impression_time_hour", "DATETIME"),
+                bigquery.SchemaField("conversion_duration", "INTEGER"),
+                bigquery.SchemaField("engagement_time", "DATETIME"),
+                bigquery.SchemaField("engagement_time_hour", "DATETIME"),
+                bigquery.SchemaField("installed_at", "DATETIME"),
+                bigquery.SchemaField("installed_at_hour", "DATETIME"),
+                bigquery.SchemaField("install_finish_time", "DATETIME"),
+                bigquery.SchemaField("install_begin_time", "DATETIME"),
+                bigquery.SchemaField("referral_time", "DATETIME"),
+                bigquery.SchemaField("created_at", "DATETIME"),
+                bigquery.SchemaField("created_at_milli", "DATETIME"),
+                bigquery.SchemaField("created_at_hour", "DATETIME"),
+                bigquery.SchemaField("received_at", "DATETIME"),
+                bigquery.SchemaField("reattributed_at", "DATETIME"),
+                bigquery.SchemaField("reattributed_at_hour", "DATETIME"),
+                bigquery.SchemaField("attribution_updated_at", "DATETIME"),
+                bigquery.SchemaField("time_to_uninstall", "INTEGER"),
+                bigquery.SchemaField("time_to_reinstall", "INTEGER"),
+                bigquery.SchemaField("uninstalled_at", "DATETIME"),
+                bigquery.SchemaField("reinstalled_at", "DATETIME"),
+                bigquery.SchemaField("last_session_time", "DATETIME"),
+                bigquery.SchemaField("connection_type", "STRING"),
+                bigquery.SchemaField("cpu_type", "STRING"),
+                bigquery.SchemaField("hardware_name", "STRING"),
+                bigquery.SchemaField("network_type", "STRING"),
+                bigquery.SchemaField("device_manufacturer", "STRING"),
+                bigquery.SchemaField("proxy_ip_address", "STRING"),
+                bigquery.SchemaField("ad_revenue_network", "STRING"),
+                bigquery.SchemaField("ad_revenue_unit", "STRING"),
+                bigquery.SchemaField("ad_revenue_placement", "STRING"),
+                bigquery.SchemaField("ad_mediation_platform", "STRING"),
+                bigquery.SchemaField("ad_revenue_payload", "STRING"),
+                bigquery.SchemaField("ad_impressions_count", "INTEGER"),
+                bigquery.SchemaField("dcp_xxx", "STRING"),
+                bigquery.SchemaField("is_deeplink_click", "INTEGER"),
+                bigquery.SchemaField("san_engagement_times", "STRING"),
+                bigquery.SchemaField("device_atlas_id", "INTEGER"),
+                bigquery.SchemaField("click_attribution_window", "INTEGER"),
+                bigquery.SchemaField("impression_attribution_window", "INTEGER"),
+                bigquery.SchemaField("probmatching_attribution_window", "INTEGER"),
+                bigquery.SchemaField("reattribution_attribution_window", "INTEGER"),
+                bigquery.SchemaField("inactive_user_definition", "INTEGER"),
+                bigquery.SchemaField("attribution_ttl", "INTEGER"),
+                bigquery.SchemaField("reattribution_attribution_ttl", "INTEGER"),
+                bigquery.SchemaField("reattribution_fallback_type", "STRING"),
+                bigquery.SchemaField("last_fallback_time", "DATETIME"),
+                bigquery.SchemaField("attribution_expires_at", "DATETIME"),
+                bigquery.SchemaField("callback_ttl", "INTEGER"),
+                bigquery.SchemaField("within_callback_ttl", "INTEGER"),
+                bigquery.SchemaField("adid", "STRING"),
+                bigquery.SchemaField("idfa", "STRING"),
+                bigquery.SchemaField("android_id", "STRING"),
+                bigquery.SchemaField("android_id_md5", "STRING"),
+                bigquery.SchemaField("mac_sha1", "STRING"),
+                bigquery.SchemaField("mac_md5", "STRING"),
+                bigquery.SchemaField("idfa__android_id", "STRING"),
+                bigquery.SchemaField("idfa__gps_adid", "STRING"),
+                bigquery.SchemaField("idfa__gps_adid__fire_adid", "STRING"),
+                bigquery.SchemaField("idfa_md5", "STRING"),
+                bigquery.SchemaField("idfa_md5_hex", "STRING"),
+                bigquery.SchemaField("idfa_upper", "STRING"),
+                bigquery.SchemaField("idfv", "STRING"),
+                bigquery.SchemaField("gps_adid", "STRING"),
+                bigquery.SchemaField("gps_adid_md5", "STRING"),
+                bigquery.SchemaField("oaid", "STRING"),
+                bigquery.SchemaField("oaid_md5", "STRING"),
+                bigquery.SchemaField("external_device_id_md5", "STRING"),
+                bigquery.SchemaField("web_uuid", "STRING"),
+                bigquery.SchemaField("win_udid", "STRING"),
+                bigquery.SchemaField("win_hwid", "STRING"),
+                bigquery.SchemaField("win_naid", "STRING"),
+                bigquery.SchemaField("win_adid", "STRING"),
+                bigquery.SchemaField("fire_adid", "STRING"),
+                bigquery.SchemaField("match_type", "STRING"),
+                bigquery.SchemaField("reftag", "STRING"),
+                bigquery.SchemaField("reftags", "STRING"),
+                bigquery.SchemaField("referrer", "STRING"),
+                bigquery.SchemaField("user_agent", "STRING"),
+                bigquery.SchemaField("mcc", "INTEGER"),
+                bigquery.SchemaField("mnc", "INTEGER"),
+                bigquery.SchemaField("ip_address", "STRING"),
+                bigquery.SchemaField("isp", "STRING"),
+                bigquery.SchemaField("region", "STRING"),
+                bigquery.SchemaField("country", "STRING"),
+                bigquery.SchemaField("country_subdivision", "STRING"),
+                bigquery.SchemaField("city", "STRING"),
+                bigquery.SchemaField("postal_code", "STRING"),
+                bigquery.SchemaField("language", "STRING"),
+                bigquery.SchemaField("device_name", "STRING"),
+                bigquery.SchemaField("device_type", "STRING"),
+                bigquery.SchemaField("os_name", "STRING"),
+                bigquery.SchemaField("platform", "STRING"),
+                bigquery.SchemaField("api_level", "INTEGER"),
+                bigquery.SchemaField("sdk_version", "STRING"),
+                bigquery.SchemaField("os_version", "STRING"),
+                bigquery.SchemaField("random", "INTEGER"),
+                bigquery.SchemaField("nonce", "STRING"),
+                bigquery.SchemaField("random_user_id", "STRING"),
+                bigquery.SchemaField("environment", "STRING"),
+                bigquery.SchemaField("tracking_enabled", "INTEGER"),
+                bigquery.SchemaField("tracking_limited", "INTEGER"),
+                bigquery.SchemaField("att_status", "INTEGER"),
+                bigquery.SchemaField("third_party_sharing_disabled", "INTEGER"),
+                bigquery.SchemaField("timezone", "STRING"),
+                bigquery.SchemaField("event", "STRING"),
+                bigquery.SchemaField("event_name", "STRING"),
+                bigquery.SchemaField("last_time_spent", "INTEGER"),
+                bigquery.SchemaField("time_spent", "INTEGER"),
+                bigquery.SchemaField("session_count", "INTEGER"),
+                bigquery.SchemaField("lifetime_session_count", "INTEGER"),
+                bigquery.SchemaField("is_reattributed", "INTEGER"),
+                bigquery.SchemaField("is_imported", "INTEGER"),
+                bigquery.SchemaField("deeplink", "STRING"),
+                bigquery.SchemaField("partner_parameters", "STRING"),
+                bigquery.SchemaField("revenue_float", "FLOAT"),
+                bigquery.SchemaField("revenue", "INTEGER"),
+                bigquery.SchemaField("currency", "STRING"),
+                bigquery.SchemaField("revenue_usd", "FLOAT"),
+                bigquery.SchemaField("revenue_usd_cents", "INTEGER"),
+                bigquery.SchemaField("revenue_cny", "FLOAT"),
+                bigquery.SchemaField("revenue_cny_cents", "INTEGER"),
+                bigquery.SchemaField("reporting_revenue", "FLOAT"),
+                bigquery.SchemaField("reporting_currency", "STRING"),
+                bigquery.SchemaField("cost_type", "STRING"),
+                bigquery.SchemaField("cost_amount", "FLOAT"),
+                bigquery.SchemaField("cost_currency", "STRING"),
+                bigquery.SchemaField("reporting_cost", "FLOAT"),
+                bigquery.SchemaField("cost_id_md5", "STRING"),
+                bigquery.SchemaField("push_token", "STRING"),
+                bigquery.SchemaField("subscription_purchased_at", "DATETIME"),
+                bigquery.SchemaField("subscription_expiration_time", "DATETIME"),
+                bigquery.SchemaField("subscription_cancelled_at", "DATETIME"),
+                bigquery.SchemaField("subscription_transaction_id", "INTEGER"),
+                bigquery.SchemaField("subscription_original_transaction_id", "INTEGER"),
+                bigquery.SchemaField("subscription_expired_transaction_id", "INTEGER"),
+                bigquery.SchemaField("subscription_environment", "STRING"),
+                bigquery.SchemaField("subscription_product_id", "STRING"),
+                bigquery.SchemaField("subscription_sales_region", "STRING"),
+                bigquery.SchemaField("subscription_store", "STRING"),
+                bigquery.SchemaField("subscription_event_subtype", "STRING"),
+                bigquery.SchemaField("subscription_event_type", "STRING"),
+                bigquery.SchemaField("sk_ts", "DATETIME"),
+                bigquery.SchemaField("sk_payload", "STRING"),
+                bigquery.SchemaField("sk_version", "FLOAT"),
+                bigquery.SchemaField("sk_network_id", "STRING"),
+                bigquery.SchemaField("sk_campaign_id", "INTEGER"),
+                bigquery.SchemaField("sk_transaction_id", "STRING"),
+                bigquery.SchemaField("sk_app_id", "INTEGER"),
+                bigquery.SchemaField("sk_attribution_signature", "STRING"),
+                bigquery.SchemaField("sk_invalid_signature", "INTEGER"),
+                bigquery.SchemaField("sk_redownload", "INTEGER"),
+                bigquery.SchemaField("sk_fidelity_type", "INTEGER"),
+                bigquery.SchemaField("sk_source_app_id", "INTEGER"),
+                bigquery.SchemaField("sk_conversion_value", "INTEGER"),
+                bigquery.SchemaField("sk_did_win", "STRING"),
+                bigquery.SchemaField("partner", "STRING"),
+                bigquery.SchemaField("reporting_revenue_min", "STRING"),
+                bigquery.SchemaField("reporting_revenue_max", "STRING"),
+                bigquery.SchemaField("app_token", "STRING"),
+                bigquery.SchemaField("publisher_parameters", "STRING"),
+                bigquery.SchemaField("label", "STRING"),
+                bigquery.SchemaField("secret_id", "STRING"),
+                bigquery.SchemaField("gclid", "STRING"),
+                bigquery.SchemaField("google_ads_campaign_type", "STRING"),
+                bigquery.SchemaField("google_ads_campaign_name", "STRING"),
+                bigquery.SchemaField("google_ads_campaign_id", "INTEGER"),
+                bigquery.SchemaField("google_ads_adgroup_name", "STRING"),
+                bigquery.SchemaField("google_ads_adgroup_id", "INTEGER"),
+                bigquery.SchemaField("google_ads_creative_id", "INTEGER"),
+                bigquery.SchemaField("google_ads_network_type", "STRING"),
+                bigquery.SchemaField("google_ads_network_subtype", "STRING"),
+                bigquery.SchemaField("google_ads_keyword", "STRING"),
+                bigquery.SchemaField("google_ads_matchtype", "STRING"),
+                bigquery.SchemaField("google_ads_placement", "STRING"),
+                bigquery.SchemaField("google_ads_video_id", "INTEGER"),
+                bigquery.SchemaField("google_ads_external_customer_id", "INTEGER"),
+                bigquery.SchemaField("google_ads_ad_type", "STRING"),
+                bigquery.SchemaField("search_term", "STRING"),
+                bigquery.SchemaField("gmp_product_type", "STRING"),
+                bigquery.SchemaField("dcm_campaign_type", "STRING"),
+                bigquery.SchemaField("dcm_external_customer_id", "INTEGER"),
+                bigquery.SchemaField("dcm_placement_id", "INTEGER"),
+                bigquery.SchemaField("dcm_placement_name", "STRING"),
+                bigquery.SchemaField("dcm_site_id", "INTEGER"),
+                bigquery.SchemaField("dcm_creative_id", "INTEGER"),
+                bigquery.SchemaField("dbm_campaign_type", "STRING"),
+                bigquery.SchemaField("dbm_external_customer_id", "INTEGER"),
+                bigquery.SchemaField("dbm_line_item_id", "INTEGER"),
+                bigquery.SchemaField("dbm_line_item_name", "STRING"),
+                bigquery.SchemaField("dbm_insertion_order_id", "INTEGER"),
+                bigquery.SchemaField("dbm_creative_id", "INTEGER"),
+                bigquery.SchemaField("dbm_exchange_id", "INTEGER"),
+                bigquery.SchemaField("fb_install_referrer", "STRING"),
+                bigquery.SchemaField("fb_install_referrer_ad_id", "INTEGER"),
+                bigquery.SchemaField("fb_install_referrer_adgroup_id", "INTEGER"),
+                bigquery.SchemaField("fb_install_referrer_adgroup_name", "STRING"),
+                bigquery.SchemaField("fb_install_referrer_campaign_id", "INTEGER"),
+                bigquery.SchemaField("fb_install_referrer_campaign_name", "STRING"),
+                bigquery.SchemaField("fb_install_referrer_campaign_group_id", "INTEGER"),
+                bigquery.SchemaField("fb_install_referrer_campaign_group_name", "STRING"),
+                bigquery.SchemaField("fb_install_referrer_account_id", "INTEGER"),
+                bigquery.SchemaField("fb_install_referrer_ad_objective_name", "STRING"),
+                bigquery.SchemaField("fb_install_referrer_publisher_platform", "STRING"),
+                bigquery.SchemaField("tweet_id", "INTEGER"),
+                bigquery.SchemaField("twitter_line_item_id", "STRING"),
+                bigquery.SchemaField("iad_creative_set_name", "STRING"),
+                bigquery.SchemaField("iad_creative_set_id", "INTEGER"),
+                bigquery.SchemaField("iad_conversion_type", "STRING"),
+                bigquery.SchemaField("iad_keyword_matchtype", "STRING"),
+                bigquery.SchemaField("userid", "INTEGER"),
+                bigquery.SchemaField("name", "STRING"),
+                bigquery.SchemaField("phone", "INTEGER"),
+                bigquery.SchemaField("email", "STRING"),
+                bigquery.SchemaField("id", "INTEGER"),
+                bigquery.SchemaField("title", "STRING"),
+                bigquery.SchemaField("start_date", "TIMESTAMP"),
+                bigquery.SchemaField("end_date", "TIMESTAMP"),
+                bigquery.SchemaField("duration", "INTEGER"),
+                bigquery.SchemaField("post_type", "STRING"),
+                bigquery.SchemaField("post_id", "INTEGER"),
+                bigquery.SchemaField("story_type", "STRING"),
+                bigquery.SchemaField("story_id", "INTEGER"),
+                bigquery.SchemaField("story_url", "STRING"),
+                bigquery.SchemaField("request_receiver_name", "STRING"),
+                bigquery.SchemaField("request_receiver_id", "INTEGER"),
+                bigquery.SchemaField("request_sent_date", "DATE"),
+                bigquery.SchemaField("request_sent_time", "STRING"),
+                bigquery.SchemaField("name_1", "STRING"),
+                bigquery.SchemaField("clicks", "INTEGER"),
+                bigquery.SchemaField("impressions", "INTEGER"),
+                bigquery.SchemaField("installs", "INTEGER"),
+                bigquery.SchemaField("uninstalls", "INTEGER"),
+                bigquery.SchemaField("uninstall_cohort", "INTEGER"),
+                bigquery.SchemaField("reinstalls", "INTEGER"),
+                bigquery.SchemaField("click_conversion_rate", "FLOAT"),
+                bigquery.SchemaField("ctr", "FLOAT"),
+                bigquery.SchemaField("impression_conversion_rate", "FLOAT"),
+                bigquery.SchemaField("reattributions", "INTEGER"),
+                bigquery.SchemaField("reattribution_reinstalls", "INTEGER"),
+                bigquery.SchemaField("deattributions", "INTEGER"),
+                bigquery.SchemaField("sessions", "INTEGER"),
+                bigquery.SchemaField("revenue_events", "INTEGER"),
+                bigquery.SchemaField("all_revenue", "INTEGER"),
+                bigquery.SchemaField("cohort_revenue", "INTEGER"),
+                bigquery.SchemaField("daus", "INTEGER"),
+                bigquery.SchemaField("waus", "INTEGER"),
+                bigquery.SchemaField("maus", "INTEGER"),
+                bigquery.SchemaField("limit_ad_tracking_installs", "INTEGER"),
+                bigquery.SchemaField("limit_ad_tracking_install_rate", "FLOAT"),
+                bigquery.SchemaField("limit_ad_tracking_reattributions", "INTEGER"),
+                bigquery.SchemaField("limit_ad_tracking_reattribution_rate", "FLOAT"),
+                bigquery.SchemaField("gdpr_forgets", "INTEGER"),
+                bigquery.SchemaField("cohort_ad_revenue", "INTEGER"),
+                bigquery.SchemaField("cohort_all_revenue", "INTEGER"),
+                bigquery.SchemaField("rejected_installs", "INTEGER"),
+                bigquery.SchemaField("rejected_installs_anon_ip", "INTEGER"),
+                bigquery.SchemaField("rejected_installs_too_many_engagements", "INTEGER"),
+                bigquery.SchemaField("rejected_installs_distribution_outlier", "INTEGER"),
+                bigquery.SchemaField("rejected_installs_click_injection", "INTEGER"),
+                bigquery.SchemaField("rejected_installs_invalid_signature", "INTEGER"),
+                bigquery.SchemaField("rejected_reattributions", "INTEGER"),
+                bigquery.SchemaField("rejected_reattributions_anon_ip", "INTEGER"),
+                bigquery.SchemaField("rejected_reattributions_too_many_engagements", "INTEGER"),
+                bigquery.SchemaField("rejected_reattributions_distribution_outlier", "INTEGER"),
+                bigquery.SchemaField("rejected_reattributions_click_injection", "INTEGER"),
+                bigquery.SchemaField("rejected_install_rate", "INTEGER"),
+                bigquery.SchemaField("rejected_install_anon_ip_rate", "INTEGER"),
+                bigquery.SchemaField("rejected_install_too_many_engagements_rate", "INTEGER"),
+                bigquery.SchemaField("rejected_install_distribution_outlier_rate", "INTEGER"),
+                bigquery.SchemaField("rejected_install_click_injection_rate", "INTEGER"),
+                bigquery.SchemaField("rejected_reattribution_rate", "INTEGER"),
+                bigquery.SchemaField("rejected_reattribution_anon_ip_rate", "INTEGER"),
+                bigquery.SchemaField("rejected_reattribution_too_many_engagements_rate", "INTEGER"),
+                bigquery.SchemaField("rejected_reattribution_distribution_outlier_rate", "INTEGER"),
+                bigquery.SchemaField("rejected_reattribution_click_injection_rate", "INTEGER"),
+                bigquery.SchemaField("install_cost", "INTEGER"),
+                bigquery.SchemaField("click_cost", "INTEGER"),
+                bigquery.SchemaField("impression_cost", "FLOAT"),
+                bigquery.SchemaField("event_cost", "INTEGER"),
+                bigquery.SchemaField("cost", "FLOAT"),
+                bigquery.SchemaField("ecost", "FLOAT"),
+                bigquery.SchemaField("paid_installs", "INTEGER"),
+                bigquery.SchemaField("paid_clicks", "INTEGER"),
+                bigquery.SchemaField("paid_impressions", "INTEGER"),
+                bigquery.SchemaField("cpe", "INTEGER"),
+                bigquery.SchemaField("ecpc", "FLOAT"),
+                bigquery.SchemaField("ecpi", "FLOAT"),
+                bigquery.SchemaField("ecpm", "FLOAT"),
+                bigquery.SchemaField("cohort_gross_profit", "FLOAT"),
+                bigquery.SchemaField("return_on_investment", "FLOAT"),
+                bigquery.SchemaField("rcr", "INTEGER"),
+                bigquery.SchemaField("roas", "INTEGER"),
+                bigquery.SchemaField("ad_revenue", "INTEGER"),
+                bigquery.SchemaField("ad_impressions", "INTEGER"),
+                bigquery.SchemaField("ad_rpm", "INTEGER"),
+                bigquery.SchemaField("events", "INTEGER"),
+                bigquery.SchemaField("first_events", "INTEGER"),
+                bigquery.SchemaField("revenue_per_event", "INTEGER"),
+                bigquery.SchemaField("revenue_per_revenue_event", "INTEGER"),
+                bigquery.SchemaField("retained_users", "INTEGER"),
+                bigquery.SchemaField("cohort_size", "INTEGER"),
+                bigquery.SchemaField("retention_rate", "FLOAT"),
+                bigquery.SchemaField("sessions_per_user", "FLOAT"),
+                bigquery.SchemaField("revenue_total", "INTEGER"),
+                bigquery.SchemaField("revenue_events_total", "INTEGER"),
+                bigquery.SchemaField("revenue_per_user", "FLOAT"),
+                bigquery.SchemaField("revenue_per_paying_user", "FLOAT"),
+                bigquery.SchemaField("revenue_total_in_cohort", "INTEGER"),
+                bigquery.SchemaField("revenue_events_total_in_cohort", "INTEGER"),
+                bigquery.SchemaField("lifetime_value", "FLOAT"),
+                bigquery.SchemaField("paying_user_lifetime_value", "FLOAT"),
+                bigquery.SchemaField("time_spent_per_user", "FLOAT"),
+                bigquery.SchemaField("time_spent_per_session", "FLOAT"),
+                bigquery.SchemaField("paying_users", "INTEGER"),
+                bigquery.SchemaField("paying_user_size", "INTEGER"),
+                bigquery.SchemaField("paying_users_retention_rate", "FLOAT"),
+                bigquery.SchemaField("paying_user_rate", "FLOAT"),
+                bigquery.SchemaField("revenue_events_per_user", "FLOAT"),
+                bigquery.SchemaField("revenue_events_per_active_user", "FLOAT"),
+                bigquery.SchemaField("revenue_events_per_paying_user", "FLOAT"),
+                bigquery.SchemaField("converted_users", "INTEGER"),
+                bigquery.SchemaField("converted_user_size", "INTEGER"),
+                bigquery.SchemaField("conversion_distribution", "FLOAT"),
+                bigquery.SchemaField("conversion_per_user", "FLOAT"),
+                bigquery.SchemaField("conversion_per_active_user", "FLOAT"),
+                bigquery.SchemaField("events_per_converted_user", "FLOAT"),
+                bigquery.SchemaField("events_per_user", "FLOAT"),
+                bigquery.SchemaField("events_per_active_user", "FLOAT"),
+                bigquery.SchemaField("reattributions_per_user", "FLOAT"),
+                bigquery.SchemaField("deattributions_per_user", "FLOAT"),
+                bigquery.SchemaField("reattributions_per_deattribution", "FLOAT"),
+                bigquery.SchemaField("uninstalls_1", "INTEGER"),
+                bigquery.SchemaField("uninstalls_total", "INTEGER"),
+                bigquery.SchemaField("reinstalls_total", "INTEGER"),
+                bigquery.SchemaField("first_uninstalls", "FLOAT"),
+                bigquery.SchemaField("first_uninstalls_total", "INTEGER"),
+                bigquery.SchemaField("first_reinstalls", "FLOAT"),
+                bigquery.SchemaField("gdpr_forgets_total", "INTEGER"),
+                bigquery.SchemaField("ad_revenue_total", "INTEGER"),
+                bigquery.SchemaField("ad_revenue_total_in_cohort", "INTEGER"),
+                bigquery.SchemaField("ad_impressions_total", "INTEGER"),
+                bigquery.SchemaField("ad_impressions_total_in_cohort", "INTEGER"),
+                bigquery.SchemaField("all_revenue_total", "INTEGER"),
+                bigquery.SchemaField("all_revenue_per_user", "FLOAT"),
+                bigquery.SchemaField("all_revenue_total_in_cohort", "INTEGER"),
+                bigquery.SchemaField("ctr_1", "FLOAT"),
+                bigquery.SchemaField("uninstalls_2", "INTEGER"),
+                bigquery.SchemaField("base_sessions", "FLOAT"),
+                bigquery.SchemaField("avg_daus", "FLOAT"),
+                bigquery.SchemaField("avg_waus", "FLOAT"),
+                bigquery.SchemaField("avg_maus", "FLOAT"),
+                bigquery.SchemaField("iad_ad_id", "INTEGER"),
+            ],
+            allow_quoted_newlines=True,
+            skip_leading_rows=1,
+            # The source format defaults to CSV, so the line below is optional.
+            source_format=bigquery.SourceFormat.CSV,
+            # If table is already loaded, following command will ensure its over-written
+            # write_disposition = 'WRITE_TRUNCATE'
+        )
+        uri = "gs://eclub_data_prod_adjust/adjust_user_event_"+str(c)+".csv"
+        load_job = client.load_table_from_uri(
+            uri, table_id, job_config=job_config)  # Make an API request.
+        load_job.result()  # Waits for the job to complete.
+        destination_table = client.get_table(table_id)  # Make an API request.
+        print("Loaded {} rows.".format(destination_table.num_rows))
+
+
+    run_adjust_tracker('Token token=dqNuUk-9-ytrkkWHzepu')
+    run_adjust_campaign_adgroup_creative('Token token=dqNuUk-9-ytrkkWHzepu')
+    user_event('eclub_data_prod_adjust')
+    big_query_run_adjust_tracker("eclub-data.prod.stg_adjust_tracker")
+    big_query_run_adjust_campaign_adgroup_creative("eclub-data.prod.stg_adjust_campaign_adgroup_creative")
+    big_query_user_event("eclub-data.prod.stg_adjust_user_event")
+
+## big query executions
+
+    query_string1 = """
+           insert into prod.main_adjust_campaign_adgroup_creative
+    select * from prod.stg_adjust_campaign_adgroup_creative;
+            insert into prod.main_adjust_tracker
+    select * from prod.stg_adjust_tracker;
+           insert into prod.main_adjust_user_event
+        select * from prod.stg_adjust_user_event;
+           """
+    client.query(query_string1).result()
