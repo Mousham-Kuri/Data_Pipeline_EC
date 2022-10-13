@@ -1,0 +1,219 @@
+if __name__ == '__main__':
+    from google.analytics.data_v1beta import BetaAnalyticsDataClient
+    from google.analytics.data_v1beta.types import DateRange
+    from google.analytics.data_v1beta.types import Dimension
+    from google.analytics.data_v1beta.types import Metric
+    from google.analytics.data_v1beta.types import RunReportRequest
+    from google.cloud import storage
+    from google.cloud import bigquery
+    import pandas as pd
+    import datetime
+    import os
+
+
+
+    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = r'C:\Users\Administrator\PycharmProjects\Google Analytics\eclub-data-d18845fd301c.json'
+    client = bigquery.Client()
+    storage_client = storage.Client()
+    bucket = storage_client.bucket('eclub_data_prod_ga')
+
+    today = datetime.datetime.today().date()
+    yesterday_date = today - datetime.timedelta(days=1)
+    day_before_date = today - datetime.timedelta(days=4)
+
+    yesterday_str = str(yesterday_date)
+    yesterday = yesterday_str[:4] + yesterday_str[5:7] + yesterday_str[8:]
+
+    day_before_str = str(day_before_date)
+    day_before = day_before_str[:4] + day_before_str[5:7] + day_before_str[8:]
+
+
+    def run_report(property_id):
+        """Runs a simple report on a Google Analytics 4 property."""
+
+        # Using a default constructor instructs the client to use the credentials
+        # specified in GOOGLE_APPLICATION_CREDENTIALS environment variable.
+        client = BetaAnalyticsDataClient()
+
+        request = RunReportRequest(
+            property=f"properties/{property_id}",
+            dimensions=[Dimension(name="date"), Dimension(name="eventName"), Dimension(name="platform"),
+                        Dimension(name="platformDeviceCategory"), Dimension(name="newVsReturning"),
+                        Dimension(name="city")],
+            metrics=[Metric(name="activeUsers"), Metric(name="newUsers"), Metric(name="userEngagementDuration"),
+                     Metric(name="engagedSessions"), Metric(name="engagementRate"),
+                     Metric(name="averageSessionDuration"), Metric(name="sessionsPerUser"), Metric(name="eventCount"),
+                     Metric(name="eventCountPerUser")],
+            date_ranges=[DateRange(start_date=yesterday_str, end_date=yesterday_str)], )
+        response = client.run_report(request)
+
+        output = []
+
+        for row in response.rows:
+            output.append({"date": row.dimension_values[0].value, "event_name": row.dimension_values[1].value,
+                           "platform": row.dimension_values[2].value,
+                           "platform_device_category": row.dimension_values[3].value,
+                           "new_vs_returning": row.dimension_values[4].value, "city": row.dimension_values[5].value,
+                           "active_users": row.metric_values[0].value, "new_users": row.metric_values[1].value,
+                           "user_engagement_duration": row.metric_values[2].value,
+                           "engaged_sessions": row.metric_values[3].value,
+                           "engagement_rate": row.metric_values[4].value,
+                           "average_session_duration": row.metric_values[5].value,
+                           "sessions_per_user": row.metric_values[6].value, "event_count": row.metric_values[7].value,
+                           "event_count_per_user": row.metric_values[8].value})
+        df = pd.DataFrame(output)
+        df[['date']] = df[['date']].applymap(str).applymap(lambda s: "{}-{}-{}".format(s[0:4], s[4:6], s[6:], ))
+        file_name = "google_analytics_" + str(yesterday) + ".csv"
+        csv_data = df.to_csv(index=False, header=True)
+        blob = bucket.blob(file_name)
+        blob.upload_from_string(csv_data, 'text/csv')
+
+
+    ## new code
+
+    query_string2 = """
+                truncate table prod.stg_google_analytics;
+                """
+    client.query(query_string2).result()
+
+    query_string3 = """
+                 delete from eclub-data.prod.main_google_analytics where date=@date
+                 """
+    job_config1 = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("date", "DATE", day_before_str),
+        ]
+    )
+    client.query(query_string3, job_config=job_config1).result()
+
+
+    def google_analytics(table_ID):
+        table_id = table_ID
+        job_config = bigquery.LoadJobConfig(
+            schema=[
+                bigquery.SchemaField("date", "DATE"),
+                bigquery.SchemaField("event_name", "STRING"),
+                bigquery.SchemaField("platform", "STRING"),
+                bigquery.SchemaField("platform_device_category", "STRING"),
+                bigquery.SchemaField("new_vs_returning", "STRING"),
+                bigquery.SchemaField("city", "STRING"),
+                bigquery.SchemaField("active_users", "INTEGER"),
+                bigquery.SchemaField("new_users", "INTEGER"),
+                bigquery.SchemaField("user_engagement_duration", "INTEGER"),
+                bigquery.SchemaField("engaged_sessions", "INTEGER"),
+                bigquery.SchemaField("engagement_rate", "FLOAT"),
+                bigquery.SchemaField("average_session_duration", "FLOAT"),
+                bigquery.SchemaField("sessions_per_user", "FLOAT"),
+                bigquery.SchemaField("event_count", "INTEGER"),
+                bigquery.SchemaField("event_count_per_user", "FLOAT"),
+
+            ],
+            allow_quoted_newlines=True,
+            skip_leading_rows=1,
+            # The source format defaults to CSV, so the line below is optional.
+            source_format=bigquery.SourceFormat.CSV,
+            # If table is already loaded, following command will ensure its over-written
+            # write_disposition = 'WRITE_TRUNCATE'
+        )
+        uri = "gs://eclub_data_prod_ga/google_analytics_" + str(yesterday) + ".csv"
+        load_job = client.load_table_from_uri(
+            uri, table_id, job_config=job_config)  # Make an API request.
+        load_job.result()  # Waits for the job to complete.
+        destination_table = client.get_table(table_id)  # Make an API request.
+        print("Loaded {} rows.".format(destination_table.num_rows))
+
+
+    run_report(263944243)
+    google_analytics("eclub-data.prod.stg_google_analytics")
+
+
+    ##day_before
+
+    def day_before_run_report(property_id):
+        """Runs a simple report on a Google Analytics 4 property."""
+
+        # Using a default constructor instructs the client to use the credentials
+        # specified in GOOGLE_APPLICATION_CREDENTIALS environment variable.
+        client = BetaAnalyticsDataClient()
+
+        request = RunReportRequest(
+            property=f"properties/{property_id}",
+            dimensions=[Dimension(name="date"), Dimension(name="eventName"), Dimension(name="platform"),
+                        Dimension(name="platformDeviceCategory"), Dimension(name="newVsReturning"),
+                        Dimension(name="city")],
+            metrics=[Metric(name="activeUsers"), Metric(name="newUsers"), Metric(name="userEngagementDuration"),
+                     Metric(name="engagedSessions"), Metric(name="engagementRate"),
+                     Metric(name="averageSessionDuration"), Metric(name="sessionsPerUser"), Metric(name="eventCount"),
+                     Metric(name="eventCountPerUser")],
+            date_ranges=[DateRange(start_date=day_before_str, end_date=day_before_str)], )
+        response = client.run_report(request)
+
+        output = []
+
+        for row in response.rows:
+            output.append({"date": row.dimension_values[0].value, "event_name": row.dimension_values[1].value,
+                           "platform": row.dimension_values[2].value,
+                           "platform_device_category": row.dimension_values[3].value,
+                           "new_vs_returning": row.dimension_values[4].value,
+                           "city": row.dimension_values[5].value,
+                           "active_users": row.metric_values[0].value, "new_users": row.metric_values[1].value,
+                           "user_engagement_duration": row.metric_values[2].value,
+                           "engaged_sessions": row.metric_values[3].value,
+                           "engagement_rate": row.metric_values[4].value,
+                           "average_session_duration": row.metric_values[5].value,
+                           "sessions_per_user": row.metric_values[6].value, "event_count": row.metric_values[7].value,
+                           "event_count_per_user": row.metric_values[8].value})
+        df = pd.DataFrame(output)
+        df[['date']] = df[['date']].applymap(str).applymap(lambda s: "{}-{}-{}".format(s[0:4], s[4:6], s[6:], ))
+        file_name = "google_analytics_" + str(day_before) + ".csv"
+        csv_data = df.to_csv(index=False, header=True)
+        blob = bucket.blob(file_name)
+        blob.upload_from_string(csv_data, 'text/csv')
+
+
+    # new code
+
+    def day_before_google_analytics(table_ID):
+        table_id = table_ID
+        job_config = bigquery.LoadJobConfig(
+            schema=[
+                bigquery.SchemaField("date", "DATE"),
+                bigquery.SchemaField("event_name", "STRING"),
+                bigquery.SchemaField("platform", "STRING"),
+                bigquery.SchemaField("platform_device_category", "STRING"),
+                bigquery.SchemaField("new_vs_returning", "STRING"),
+                bigquery.SchemaField("city", "STRING"),
+                bigquery.SchemaField("active_users", "INTEGER"),
+                bigquery.SchemaField("new_users", "INTEGER"),
+                bigquery.SchemaField("user_engagement_duration", "INTEGER"),
+                bigquery.SchemaField("engaged_sessions", "INTEGER"),
+                bigquery.SchemaField("engagement_rate", "FLOAT"),
+                bigquery.SchemaField("average_session_duration", "FLOAT"),
+                bigquery.SchemaField("sessions_per_user", "FLOAT"),
+                bigquery.SchemaField("event_count", "INTEGER"),
+                bigquery.SchemaField("event_count_per_user", "FLOAT"),
+
+            ],
+            allow_quoted_newlines=True,
+            skip_leading_rows=1,
+            # The source format defaults to CSV, so the line below is optional.
+            source_format=bigquery.SourceFormat.CSV,
+            # If table is already loaded, following command will ensure its over-written
+            # write_disposition = 'WRITE_TRUNCATE'
+        )
+        uri = "gs://eclub_data_prod_ga/google_analytics_" + str(day_before) + ".csv"
+        load_job = client.load_table_from_uri(
+            uri, table_id, job_config=job_config)  # Make an API request.
+        load_job.result()  # Waits for the job to complete.
+        destination_table = client.get_table(table_id)  # Make an API request.
+        print("Loaded {} rows.".format(destination_table.num_rows))
+
+
+    day_before_run_report(263944243)
+    day_before_google_analytics("eclub-data.prod.stg_google_analytics")
+
+    query_string1 = """
+                insert into prod.main_google_analytics
+                select * from prod.stg_google_analytics;
+                """
+    client.query(query_string1).result()
