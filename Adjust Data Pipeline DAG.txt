@@ -1,0 +1,134 @@
+from airflow.operators.python import PythonOperator
+from airflow.models import DAG
+from airflow.models import Variable
+from datetime import timedelta
+from datetime import datetime, date
+import time
+from airflow.providers.google.cloud.transfers.gcs_to_bigquery import GCSToBigQueryOperator
+from  airflow.providers.google.cloud.sensors.gcs import GCSObjectsWithPrefixExistenceSensor
+from airflow.providers.google.cloud.transfers.gcs_to_gcs import GCSToGCSOperator
+from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
+from airflow.hooks.base import BaseHook
+from airflow.providers.slack.operators.slack_webhook import SlackWebhookOperator
+
+SLACK_CONN_ID = 'slack'
+dag_config = Variable.get("adjust_main_bigquery_table", deserialize_json=True)
+
+def task_fail_slack_alert(context):
+    slack_webhook_token = BaseHook.get_connection(SLACK_CONN_ID).password
+    slack_msg = """
+            :red_circle: Task Failed.
+            *Task*: {task}  
+            *Dag*: {dag} 
+            *Execution Time*: {exec_date}  
+            *Log Url*: {log_url} 
+            """.format(
+            task=context.get('task_instance').task_id,
+            dag=context.get('task_instance').dag_id,
+            ti=context.get('task_instance'),
+            exec_date=context.get('data_interval_start'),
+            log_url=context.get('task_instance').log_url,
+        )
+    failed_alert = SlackWebhookOperator(
+        task_id='slack_test',
+        http_conn_id='slack',
+        webhook_token=slack_webhook_token,
+        message=slack_msg,
+        channel="de_airflow_data_jobs_dev",
+        username='airflow',
+        dag=dag)
+    return failed_alert.execute(context=context)
+
+def task_success_slack_alert(context):
+    slack_webhook_token = BaseHook.get_connection(SLACK_CONN_ID).password
+    slack_msg = """
+            :large_green_circle: TASK SUCCESS!
+            *Task*: {task} 
+            *Dag*: {dag} 
+            *Execution Time*: {exec_date}  
+            *Log Url*: {log_url} 
+            """.format(
+            task=context.get('task_instance').task_id,
+            dag=context.get('task_instance').dag_id,
+            ti=context.get('task_instance'),
+            exec_date=context.get('logical_date'),
+            log_url=context.get('task_instance').log_url,
+        )
+    success_alert = SlackWebhookOperator(
+        task_id='slack_test',
+        http_conn_id=SLACK_CONN_ID,
+        webhook_token=slack_webhook_token,
+        message=slack_msg,
+        channel=Variable.get("slack_channel"),
+        username=Variable.get("slack_channel_username"),
+        dag=dag)
+    return success_alert.execute(context=context)
+
+args = {
+    'owner': 'airflow',
+    'start_date': datetime(2022, 7, 31),
+    'on_failure_callback': task_fail_slack_alert,
+    'on_success_callback': task_success_slack_alert,
+}
+
+dag = DAG(
+    dag_id='Adjust_Dev',
+    default_args=args,
+    schedule_interval='@hourly',
+    catchup=False,
+    render_template_as_native_obj=True,
+)
+
+
+with dag:
+    file_scan = GCSObjectsWithPrefixExistenceSensor (
+            task_id = 'file_scan',
+            bucket = Variable.get("bucket_adjust"),
+            prefix = Variable.get("prefix_adjust"),
+            poke_interval=5,
+            timeout=20,
+            retries=2,
+    )
+
+    gcs_to_bigquery = GCSToBigQueryOperator(
+        task_id='gcs_to_bigquery',
+        bucket=Variable.get("bucket_adjust"),
+        source_objects="{{task_instance.xcom_pull(task_ids='file_scan', dag_id='Adjust_Dev')}}",
+        destination_project_dataset_table=Variable.get("adjust_stg_bigquery_table"),
+        write_disposition='WRITE_TRUNCATE',
+        skip_leading_rows=1,
+        compression='GZIP',
+        autodetect=True,
+    )
+
+    big_query_stg_to_main =BigQueryInsertJobOperator(
+            task_id='big_query_stg_to_main',
+            configuration={
+                'query': {
+                    'query': Variable.get("adjust_select_query") ,
+                    'destinationTable': {
+                        'projectId': dag_config["projectId"],
+                        'datasetId': dag_config["datasetId"],
+                        'tableId': dag_config["tableId"],
+                    },
+                    'useLegacySql': False,
+                    'allowLargeResults': True,
+                    'write_disposition': 'WRITE_APPEND',
+                }
+            },
+        )
+
+
+
+    move_files = GCSToGCSOperator(
+        task_id="move_files",
+        source_bucket=Variable.get("bucket_adjust"),
+        source_object=Variable.get("adjust_source_object"),
+        destination_bucket=Variable.get("bucket_adjust"),
+        destination_object=Variable.get("adjust_destination_object"),
+        # delimiter='.csv',
+        # move_object=True,
+        replace=True,
+    )
+
+    file_scan>> gcs_to_bigquery>> big_query_stg_to_main>> move_files
